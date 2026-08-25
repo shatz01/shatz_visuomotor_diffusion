@@ -1,12 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#     "gym-pusht==0.1.6",
-#     "moviepy>=2.0,<3",
-#     "pymunk>=6.6,<7",
-# ]
-# ///
-
 """Inspect Push-T and save a deterministic random-policy rollout."""
 
 from pathlib import Path

@@ -1,19 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#     "numpy",
-#     "torch==2.7.1",
-# ]
-#
-# [[tool.uv.index]]
-# name = "pytorch"
-# url = "https://download.pytorch.org/whl/cu126"
-# explicit = true
-#
-# [tool.uv.sources]
-# torch = { index = "pytorch" }
-# ///
-
 """Verify that uv, PyTorch, and CUDA can run a small GPU computation."""
 
 import torch

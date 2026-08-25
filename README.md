@@ -2,6 +2,12 @@
 
 Small experiments for understanding diffusion policies, starting with toy diffusion models and gradually moving toward action generation for robot manipulation.
 
+Create or update the shared project environment with:
+
+```bash
+uv sync
+```
+
 Check the local PyTorch/CUDA setup with:
 
 ```bash

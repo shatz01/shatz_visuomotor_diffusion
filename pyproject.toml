@@ -1,0 +1,21 @@
+[project]
+name = "shatz-visuomotor-diffusion"
+version = "0.1.0"
+description = "Toy implementations and experiments for learning visuomotor diffusion policies."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "gym-pusht==0.1.6",
+    "moviepy>=2.0,<3",
+    "numpy",
+    "pymunk>=6.6,<7",
+    "torch==2.7.1",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
