@@ -7,3 +7,11 @@ Check the local PyTorch/CUDA setup with:
 ```bash
 uv run check_gpu.py
 ```
+
+Inspect the Push-T environment and record a random-policy rollout:
+
+```bash
+uv run inspect_pusht.py
+```
+
+The rollout video is written to `outputs/pusht_inspection/`.
