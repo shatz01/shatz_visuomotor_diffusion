@@ -21,3 +21,15 @@ uv run inspect_pusht.py
 ```
 
 The rollout video is written to `outputs/pusht_inspection/`.
+
+Download and inspect the official Push-T demonstrations:
+
+```bash
+mkdir -p data
+curl -fL https://diffusion-policy.cs.columbia.edu/data/training/pusht.zip -o data/pusht.zip
+echo "63d52a114a3f010861f0181309d165b7d69133ccae426ece2fc94caed147bdf9  data/pusht.zip" | sha256sum --check
+unzip -q data/pusht.zip -d data
+uv run inspect_pusht_data.py
+```
+
+Dataset plots and an expert-episode video are written to `outputs/pusht_dataset/`.
