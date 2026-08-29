@@ -369,6 +369,15 @@ def main() -> None:
                 epoch,
                 validation,
             )
+        save_checkpoint(
+            args.output_dir / "last.pt",
+            model,
+            loaders.normalizer,
+            loaders,
+            model_config,
+            epoch,
+            validation,
+        )
         (args.output_dir / "history.json").write_text(
             json.dumps(history, indent=2) + "\n"
         )

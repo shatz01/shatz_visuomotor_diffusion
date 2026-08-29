@@ -65,7 +65,9 @@ Then train it on the complete training split:
 uv run train_simple.py
 ```
 
-The best checkpoint and loss history are written to `outputs/simple_bc/`.
+The best-validation checkpoint, final checkpoint, and loss history are written
+to `outputs/simple_bc/best.pt`, `outputs/simple_bc/last.pt`, and
+`outputs/simple_bc/history.json`.
 Training and validation curves are also logged to the
 `shatz-visuomotor-diffusion` project in Weights & Biases. To run without
 uploading, pass `--wandb-mode disabled`; use `--wandb-mode offline` to save a
