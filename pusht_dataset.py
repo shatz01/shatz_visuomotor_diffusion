@@ -71,9 +71,9 @@ class PushTDataLoaders:
 def split_episodes(
     number_of_episodes: int,
     validation_fraction: float = 0.2,
-    seed: int = 42,
+    seed: int | None = None,
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    """Make a reproducible episode-level split with no shared transitions."""
+    """Make an episode-level split with no shared transitions."""
     if number_of_episodes < 2:
         raise ValueError("At least two episodes are required for a split.")
     if not 0 < validation_fraction < 1:
@@ -239,20 +239,19 @@ def create_pusht_dataloaders(
     *,
     batch_size: int = 64,
     validation_fraction: float = 0.2,
-    split_seed: int = 42,
-    shuffle_seed: int | None = None,
+    seed: int | None = None,
     observation_type: ObservationType = "state",
     observation_horizon: int = 2,
     prediction_horizon: int = 16,
     action_horizon: int = 8,
     num_workers: int = 0,
 ) -> PushTDataLoaders:
-    """Build train/validation loaders with normalization fit on train only."""
+    """Build loaders, using ``seed`` for both splitting and shuffling if set."""
     dataset_path = Path(dataset_path)
     root = zarr.open_group(str(dataset_path), mode="r")
     episode_ends = np.asarray(root["meta/episode_ends"])
     train_episodes, validation_episodes = split_episodes(
-        len(episode_ends), validation_fraction, split_seed
+        len(episode_ends), validation_fraction, seed
     )
     normalizer = fit_normalizer(
         root["data"], episode_ends, train_episodes, observation_type
@@ -275,9 +274,7 @@ def create_pusht_dataloaders(
         persistent_workers=num_workers > 0,
     )
     generator = (
-        torch.Generator().manual_seed(shuffle_seed)
-        if shuffle_seed is not None
-        else None
+        torch.Generator().manual_seed(seed) if seed is not None else None
     )
     return PushTDataLoaders(
         train=DataLoader(

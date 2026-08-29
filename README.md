@@ -72,5 +72,6 @@ final checkpoint, and loss history are saved as `best.pt`, `last.pt`, and
 Training and validation curves are also logged to the
 `shatz-visuomotor-diffusion` project in Weights & Biases. To run without
 uploading, pass `--wandb-mode disabled`; use `--wandb-mode offline` to save a
-run for later synchronization. Training uses a fresh random seed per run while
-retaining the same episode split; pass `--seed 42` to reproduce training exactly.
+run for later synchronization. By default, no random seeds are set. Pass
+`--seed 42` to seed Python, NumPy, PyTorch, the episode split, and DataLoader
+shuffling for a reproducible run.

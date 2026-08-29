@@ -1,9 +1,16 @@
+import random
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
-from train_simple import SimpleTrajectoryModel, create_run_output_dir, fit_fixed_batch
+from train_simple import (
+    SimpleTrajectoryModel,
+    create_run_output_dir,
+    fit_fixed_batch,
+    set_seed,
+)
 
 
 def test_model_shape_and_gradients() -> None:
@@ -35,6 +42,15 @@ def test_run_output_directory_uses_safe_wandb_identity(tmp_path: Path) -> None:
         create_run_output_dir(tmp_path, "helpful run/name", "abc123")
 
 
+def test_explicit_seed_controls_all_random_generators() -> None:
+    set_seed(7)
+    first = (random.random(), np.random.random(), torch.rand(1))
+    set_seed(7)
+    second = (random.random(), np.random.random(), torch.rand(1))
+    assert first[:2] == second[:2]
+    torch.testing.assert_close(first[2], second[2])
+
+
 def test_overfits_one_fixed_batch() -> None:
     torch.manual_seed(0)
     model = SimpleTrajectoryModel(hidden_dim=32, residual_blocks=1)
@@ -43,16 +59,12 @@ def test_overfits_one_fixed_batch() -> None:
         "action": torch.randn(8, 16, 2),
     }
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=0.0)
-    logged = []
     initial, final = fit_fixed_batch(
         model,
         batch,
         optimizer,
         steps=300,
         device=torch.device("cpu"),
-        log_loss=lambda step, loss: logged.append((step, loss)),
     )
 
     assert final < initial * 1e-3
-    assert logged[0] == (0, initial)
-    assert logged[-1] == (300, final)

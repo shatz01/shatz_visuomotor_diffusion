@@ -6,9 +6,7 @@ import argparse
 import json
 import random
 import re
-import secrets
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import torch
@@ -17,7 +15,6 @@ from torch import nn
 
 from pusht_dataset import (
     DEFAULT_DATASET,
-    PushTDataLoaders,
     PushTNormalizer,
     create_pusht_dataloaders,
 )
@@ -143,7 +140,6 @@ def fit_fixed_batch(
     optimizer: torch.optim.Optimizer,
     steps: int,
     device: torch.device,
-    log_loss: Callable[[int, float], None] | None = None,
 ) -> tuple[float, float]:
     """Optimize one fixed batch as an end-to-end pipeline sanity check."""
     observation = batch["observation"].to(device)
@@ -151,21 +147,12 @@ def fit_fixed_batch(
     model.train()
     with torch.no_grad():
         initial_loss = float(nn.functional.mse_loss(model(observation), target))
-    if log_loss is not None:
-        log_loss(0, initial_loss)
 
-    log_interval = max(steps // 100, 1)
-    for step in range(1, steps + 1):
+    for _ in range(steps):
         loss = nn.functional.mse_loss(model(observation), target)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
-        if log_loss is not None and (step % log_interval == 0 or step == steps):
-            with torch.no_grad():
-                logged_loss = float(
-                    nn.functional.mse_loss(model(observation), target)
-                )
-            log_loss(step, logged_loss)
 
     model.eval()
     with torch.no_grad():
@@ -176,29 +163,14 @@ def fit_fixed_batch(
 def save_checkpoint(
     path: Path,
     model: SimpleTrajectoryModel,
-    normalizer: PushTNormalizer,
-    loaders: PushTDataLoaders,
-    model_config: dict[str, int],
+    metadata: dict[str, object],
     epoch: int | None,
     validation_metrics: dict[str, float] | None,
 ) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             "model": model.state_dict(),
-            "model_config": model_config,
-            "normalizer": {
-                "observation_minimum": torch.from_numpy(
-                    normalizer.observation.minimum
-                ),
-                "observation_maximum": torch.from_numpy(
-                    normalizer.observation.maximum
-                ),
-                "action_minimum": torch.from_numpy(normalizer.action.minimum),
-                "action_maximum": torch.from_numpy(normalizer.action.maximum),
-            },
-            "train_episodes": loaders.train_episodes,
-            "validation_episodes": loaders.validation_episodes,
+            **metadata,
             "epoch": epoch,
             "validation_metrics": validation_metrics,
         },
@@ -229,7 +201,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--residual-blocks", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int)
-    parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--overfit-one-batch", action="store_true")
     parser.add_argument("--overfit-steps", type=int, default=1_000)
@@ -248,14 +219,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    training_seed = args.seed if args.seed is not None else secrets.randbits(32)
-    set_seed(training_seed)
+    if args.seed is not None:
+        set_seed(args.seed)
     device = resolve_device(args.device)
     loaders = create_pusht_dataloaders(
         args.dataset,
         batch_size=args.batch_size,
-        split_seed=args.split_seed,
-        shuffle_seed=training_seed,
+        seed=args.seed,
         num_workers=args.num_workers,
     )
     observation_dim = loaders.train.dataset[0]["observation"].shape[-1]
@@ -271,10 +241,22 @@ def main() -> None:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
+    normalizer = loaders.normalizer
+    checkpoint_metadata = {
+        "model_config": model_config,
+        "normalizer": {
+            "observation_minimum": torch.from_numpy(normalizer.observation.minimum),
+            "observation_maximum": torch.from_numpy(normalizer.observation.maximum),
+            "action_minimum": torch.from_numpy(normalizer.action.minimum),
+            "action_maximum": torch.from_numpy(normalizer.action.maximum),
+        },
+        "train_episodes": loaders.train_episodes,
+        "validation_episodes": loaders.validation_episodes,
+    }
 
     parameters = sum(parameter.numel() for parameter in model.parameters())
     print(f"Device: {device}")
-    print(f"Training seed: {training_seed} (episode split seed: {args.split_seed})")
+    print(f"Random seed: {args.seed if args.seed is not None else 'not set'}")
     print(f"Parameters: {parameters:,}")
     print(
         f"Windows: {len(loaders.train.dataset):,} train / "
@@ -295,8 +277,7 @@ def main() -> None:
             "batch_size": args.batch_size,
             "learning_rate": args.learning_rate,
             "weight_decay": args.weight_decay,
-            "training_seed": training_seed,
-            "split_seed": args.split_seed,
+            "seed": args.seed,
             "device": str(device),
             "parameters": parameters,
             "train_windows": len(loaders.train.dataset),
@@ -316,9 +297,6 @@ def main() -> None:
             optimizer,
             args.overfit_steps,
             device,
-            log_loss=lambda step, loss: run.log(
-                {"overfit/step": step, "overfit/mse": loss}
-            ),
         )
         print(
             f"Fixed-batch MSE after {args.overfit_steps:,} steps: "
@@ -327,11 +305,15 @@ def main() -> None:
         save_checkpoint(
             run_output_dir / "overfit.pt",
             model,
-            loaders.normalizer,
-            loaders,
-            model_config,
+            checkpoint_metadata,
             epoch=None,
             validation_metrics=None,
+        )
+        run.log(
+            {
+                "overfit/initial_mse": initial_loss,
+                "overfit/final_mse": final_loss,
+            }
         )
         run.summary["overfit_initial_mse"] = initial_loss
         run.summary["overfit_final_mse"] = final_loss
@@ -351,22 +333,13 @@ def main() -> None:
             execution_slice,
             device,
         )
-        record = {"epoch": epoch, "train_mse": train_mse, **validation}
-        history.append(record)
-        run.log(
-            {
-                "epoch": epoch,
-                "train/mse": train_mse,
-                "validation/mse": validation["mse"],
-                "validation/trajectory_error_px": validation[
-                    "trajectory_error_px"
-                ],
-                "validation/execution_error_px": validation[
-                    "execution_error_px"
-                ],
-            },
-            step=epoch,
-        )
+        epoch_metrics = {
+            "epoch": epoch,
+            "train/mse": train_mse,
+            **{f"validation/{name}": value for name, value in validation.items()},
+        }
+        history.append(epoch_metrics)
+        run.log(epoch_metrics, step=epoch)
         print(
             f"Epoch {epoch:03d} | train MSE {train_mse:.6f} | "
             f"validation MSE {validation['mse']:.6f} | "
@@ -378,18 +351,14 @@ def main() -> None:
             save_checkpoint(
                 run_output_dir / "best.pt",
                 model,
-                loaders.normalizer,
-                loaders,
-                model_config,
+                checkpoint_metadata,
                 epoch,
                 validation,
             )
         save_checkpoint(
             run_output_dir / "last.pt",
             model,
-            loaders.normalizer,
-            loaders,
-            model_config,
+            checkpoint_metadata,
             epoch,
             validation,
         )

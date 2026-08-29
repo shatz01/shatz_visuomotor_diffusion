@@ -47,7 +47,7 @@ def test_boundary_padding_and_action_alignment(tiny_dataset: Path) -> None:
         tiny_dataset,
         batch_size=2,
         validation_fraction=1 / 3,
-        split_seed=0,
+        seed=0,
         observation_horizon=2,
         prediction_horizon=4,
         action_horizon=2,
@@ -83,7 +83,7 @@ def test_split_is_disjoint_and_normalizer_uses_only_train(tiny_dataset: Path) ->
     loaders = create_pusht_dataloaders(
         tiny_dataset,
         validation_fraction=1 / 3,
-        split_seed=1,
+        seed=1,
         observation_horizon=2,
         prediction_horizon=4,
         action_horizon=2,
@@ -106,7 +106,7 @@ def test_batch_shapes_for_state_and_keypoints(tiny_dataset: Path) -> None:
             tiny_dataset,
             batch_size=3,
             validation_fraction=1 / 3,
-            split_seed=0,
+            seed=0,
             observation_type=observation_type,
             observation_horizon=2,
             prediction_horizon=4,
@@ -117,6 +117,37 @@ def test_batch_shapes_for_state_and_keypoints(tiny_dataset: Path) -> None:
         assert batch["action"].shape == (3, 4, 2)
         assert batch["observation"].dtype == torch.float32
         assert batch["action"].dtype == torch.float32
+
+
+def test_seed_controls_split_and_batch_order(tiny_dataset: Path) -> None:
+    options = dict(
+        dataset_path=tiny_dataset,
+        batch_size=3,
+        validation_fraction=1 / 3,
+        seed=7,
+        observation_horizon=2,
+        prediction_horizon=4,
+        action_horizon=2,
+    )
+    first = create_pusht_dataloaders(**options)
+    second = create_pusht_dataloaders(**options)
+    assert first.train_episodes == second.train_episodes
+    assert first.validation_episodes == second.validation_episodes
+    first_batch = next(iter(first.train))
+    second_batch = next(iter(second.train))
+    torch.testing.assert_close(
+        first_batch["observation"], second_batch["observation"]
+    )
+    torch.testing.assert_close(first_batch["action"], second_batch["action"])
+
+    unseeded = create_pusht_dataloaders(
+        tiny_dataset,
+        validation_fraction=1 / 3,
+        observation_horizon=2,
+        prediction_horizon=4,
+        action_horizon=2,
+    )
+    assert unseeded.train.generator is None
 
 
 def test_normalization_round_trip_for_numpy_and_torch() -> None:
