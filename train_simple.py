@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import secrets
 from pathlib import Path
 from typing import Callable
@@ -205,6 +206,17 @@ def save_checkpoint(
     )
 
 
+def create_run_output_dir(output_root: Path, run_name: str, run_id: str) -> Path:
+    """Create a unique, filesystem-safe directory for one W&B run."""
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", run_name).strip("._-") or "run"
+    safe_id = re.sub(r"[^A-Za-z0-9._-]+", "-", run_id).strip("._-")
+    if not safe_id:
+        raise ValueError("The W&B run ID cannot be empty.")
+    output_dir = output_root / f"{safe_name}-{safe_id}"
+    output_dir.mkdir(parents=True, exist_ok=False)
+    return output_dir
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
@@ -292,6 +304,9 @@ def main() -> None:
             **model_config,
         },
     )
+    run_output_dir = create_run_output_dir(args.output_dir, run.name, run.id)
+    run.config.update({"local_output_dir": str(run_output_dir)})
+    print(f"Run: {run.name} ({run.id})")
 
     if args.overfit_one_batch:
         batch = next(iter(loaders.train))
@@ -310,7 +325,7 @@ def main() -> None:
             f"{initial_loss:.6f} -> {final_loss:.6f}"
         )
         save_checkpoint(
-            args.output_dir / "overfit.pt",
+            run_output_dir / "overfit.pt",
             model,
             loaders.normalizer,
             loaders,
@@ -361,7 +376,7 @@ def main() -> None:
             best_mse = validation["mse"]
             best_epoch = epoch
             save_checkpoint(
-                args.output_dir / "best.pt",
+                run_output_dir / "best.pt",
                 model,
                 loaders.normalizer,
                 loaders,
@@ -370,7 +385,7 @@ def main() -> None:
                 validation,
             )
         save_checkpoint(
-            args.output_dir / "last.pt",
+            run_output_dir / "last.pt",
             model,
             loaders.normalizer,
             loaders,
@@ -378,12 +393,12 @@ def main() -> None:
             epoch,
             validation,
         )
-        (args.output_dir / "history.json").write_text(
+        (run_output_dir / "history.json").write_text(
             json.dumps(history, indent=2) + "\n"
         )
 
     print(f"Best validation MSE: {best_mse:.6f}")
-    print(f"Artifacts: {args.output_dir.resolve()}")
+    print(f"Artifacts: {run_output_dir.resolve()}")
     run.summary["best_validation_mse"] = best_mse
     run.summary["best_epoch"] = best_epoch
     run.finish()

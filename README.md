@@ -65,9 +65,10 @@ Then train it on the complete training split:
 uv run train_simple.py
 ```
 
-The best-validation checkpoint, final checkpoint, and loss history are written
-to `outputs/simple_bc/best.pt`, `outputs/simple_bc/last.pt`, and
-`outputs/simple_bc/history.json`.
+Each training run gets a unique directory named after its W&B run, such as
+`outputs/simple_bc/jumping-fog-3-vm2b1036/`. Its best-validation checkpoint,
+final checkpoint, and loss history are saved as `best.pt`, `last.pt`, and
+`history.json` inside that directory.
 Training and validation curves are also logged to the
 `shatz-visuomotor-diffusion` project in Weights & Biases. To run without
 uploading, pass `--wandb-mode disabled`; use `--wandb-mode offline` to save a

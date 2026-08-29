@@ -1,6 +1,9 @@
+from pathlib import Path
+
+import pytest
 import torch
 
-from train_simple import SimpleTrajectoryModel, fit_fixed_batch
+from train_simple import SimpleTrajectoryModel, create_run_output_dir, fit_fixed_batch
 
 
 def test_model_shape_and_gradients() -> None:
@@ -22,6 +25,14 @@ def test_model_rejects_wrong_observation_shape() -> None:
         assert "Expected observation shape" in str(error)
     else:
         raise AssertionError("Expected the model to reject an invalid input shape.")
+
+
+def test_run_output_directory_uses_safe_wandb_identity(tmp_path: Path) -> None:
+    output_dir = create_run_output_dir(tmp_path, "helpful run/name", "abc123")
+    assert output_dir == tmp_path / "helpful-run-name-abc123"
+    assert output_dir.is_dir()
+    with pytest.raises(FileExistsError):
+        create_run_output_dir(tmp_path, "helpful run/name", "abc123")
 
 
 def test_overfits_one_fixed_batch() -> None:
