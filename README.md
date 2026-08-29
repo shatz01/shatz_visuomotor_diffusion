@@ -33,3 +33,21 @@ uv run inspect_pusht_data.py
 ```
 
 Dataset plots and an expert-episode video are written to `outputs/pusht_dataset/`.
+
+Build the episode-safe `To=2`, `Tp=16`, `Ta=8` training and validation
+dataloaders with:
+
+```python
+from pusht_dataset import create_pusht_dataloaders
+
+loaders = create_pusht_dataloaders(batch_size=64)
+batch = next(iter(loaders.train))
+print(batch["observation"].shape)  # (64, 2, 5)
+print(batch["action"].shape)       # (64, 16, 2)
+```
+
+Run the dataset tests with:
+
+```bash
+uv run pytest
+```
