@@ -59,6 +59,13 @@ memorize one fixed batch:
 uv run train_simple.py --overfit-one-batch
 ```
 
+Run a three-epoch offline sanity check with no DataLoader workers, W&B run, or
+saved artifacts:
+
+```bash
+uv run train_simple.py --sanity-check
+```
+
 Then train it on the complete training split:
 
 ```bash

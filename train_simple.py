@@ -204,6 +204,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--overfit-one-batch", action="store_true")
     parser.add_argument("--overfit-steps", type=int, default=1_000)
+    parser.add_argument("--sanity-check", action="store_true")
     parser.add_argument(
         "--wandb-project", default="shatz-visuomotor-diffusion"
     )
@@ -219,6 +220,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.sanity_check and args.overfit_one_batch:
+        raise ValueError("--sanity-check and --overfit-one-batch cannot be combined.")
+    if args.sanity_check:
+        args.epochs = 3
+        args.num_workers = 0
     if args.seed is not None:
         set_seed(args.seed)
     device = resolve_device(args.device)
@@ -262,32 +268,37 @@ def main() -> None:
         f"Windows: {len(loaders.train.dataset):,} train / "
         f"{len(loaders.validation.dataset):,} validation"
     )
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    run = wandb.init(
-        project=args.wandb_project,
-        entity=args.wandb_entity,
-        name=args.wandb_run_name,
-        mode=args.wandb_mode,
-        dir=str(args.output_dir),
-        settings=wandb.Settings(x_disable_stats=True),
-        config={
-            "model": "simple_residual_mlp",
-            "dataset": str(args.dataset),
-            "epochs": args.epochs,
-            "batch_size": args.batch_size,
-            "learning_rate": args.learning_rate,
-            "weight_decay": args.weight_decay,
-            "seed": args.seed,
-            "device": str(device),
-            "parameters": parameters,
-            "train_windows": len(loaders.train.dataset),
-            "validation_windows": len(loaders.validation.dataset),
-            **model_config,
-        },
-    )
-    run_output_dir = create_run_output_dir(args.output_dir, run.name, run.id)
-    run.config.update({"local_output_dir": str(run_output_dir)})
-    print(f"Run: {run.name} ({run.id})")
+    run = None
+    run_output_dir = None
+    if args.sanity_check:
+        print("Sanity check: 3 epochs, 0 workers, no logging or saved artifacts")
+    else:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        run = wandb.init(
+            project=args.wandb_project,
+            entity=args.wandb_entity,
+            name=args.wandb_run_name,
+            mode=args.wandb_mode,
+            dir=str(args.output_dir),
+            settings=wandb.Settings(x_disable_stats=True),
+            config={
+                "model": "simple_residual_mlp",
+                "dataset": str(args.dataset),
+                "epochs": args.epochs,
+                "batch_size": args.batch_size,
+                "learning_rate": args.learning_rate,
+                "weight_decay": args.weight_decay,
+                "seed": args.seed,
+                "device": str(device),
+                "parameters": parameters,
+                "train_windows": len(loaders.train.dataset),
+                "validation_windows": len(loaders.validation.dataset),
+                **model_config,
+            },
+        )
+        run_output_dir = create_run_output_dir(args.output_dir, run.name, run.id)
+        run.config.update({"local_output_dir": str(run_output_dir)})
+        print(f"Run: {run.name} ({run.id})")
 
     if args.overfit_one_batch:
         batch = next(iter(loaders.train))
@@ -339,7 +350,8 @@ def main() -> None:
             **{f"validation/{name}": value for name, value in validation.items()},
         }
         history.append(epoch_metrics)
-        run.log(epoch_metrics, step=epoch)
+        if run is not None:
+            run.log(epoch_metrics, step=epoch)
         print(
             f"Epoch {epoch:03d} | train MSE {train_mse:.6f} | "
             f"validation MSE {validation['mse']:.6f} | "
@@ -348,29 +360,32 @@ def main() -> None:
         if validation["mse"] < best_mse:
             best_mse = validation["mse"]
             best_epoch = epoch
+            if run_output_dir is not None:
+                save_checkpoint(
+                    run_output_dir / "best.pt",
+                    model,
+                    checkpoint_metadata,
+                    epoch,
+                    validation,
+                )
+        if run_output_dir is not None:
             save_checkpoint(
-                run_output_dir / "best.pt",
+                run_output_dir / "last.pt",
                 model,
                 checkpoint_metadata,
                 epoch,
                 validation,
             )
-        save_checkpoint(
-            run_output_dir / "last.pt",
-            model,
-            checkpoint_metadata,
-            epoch,
-            validation,
-        )
-        (run_output_dir / "history.json").write_text(
-            json.dumps(history, indent=2) + "\n"
-        )
+            (run_output_dir / "history.json").write_text(
+                json.dumps(history, indent=2) + "\n"
+            )
 
     print(f"Best validation MSE: {best_mse:.6f}")
-    print(f"Artifacts: {run_output_dir.resolve()}")
-    run.summary["best_validation_mse"] = best_mse
-    run.summary["best_epoch"] = best_epoch
-    run.finish()
+    if run is not None:
+        print(f"Artifacts: {run_output_dir.resolve()}")
+        run.summary["best_validation_mse"] = best_mse
+        run.summary["best_epoch"] = best_epoch
+        run.finish()
 
 
 def set_seed(seed: int) -> None:
