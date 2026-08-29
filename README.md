@@ -75,3 +75,17 @@ uploading, pass `--wandb-mode disabled`; use `--wandb-mode offline` to save a
 run for later synchronization. By default, no random seeds are set. Pass
 `--seed 42` to seed Python, NumPy, PyTorch, the episode split, and DataLoader
 shuffling for a reproducible run.
+
+Evaluate the best and last checkpoints from a run on identical Push-T seeds:
+
+```bash
+uv run evaluate_simple.py \
+  outputs/simple_bc/<run>/best.pt \
+  outputs/simple_bc/<run>/last.pt
+```
+
+The evaluator reports geometric target coverage, success above 95% coverage,
+rollout length, and end-to-end policy inference latency. JSON results and a
+video of every rollout are written to a timestamped directory under
+`outputs/simple_evaluation/`. Each video displays current and maximum coverage
+plus the 95% success threshold, and JSON results retain coverage at every step.
