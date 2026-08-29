@@ -11,6 +11,7 @@ dependencies = [
     "numpy",
     "pymunk>=6.6,<7",
     "torch==2.7.1",
+    "wandb>=0.29.0",
     "zarr>=2.18,<3",
 ]
 

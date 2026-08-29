@@ -51,3 +51,23 @@ Run the dataset tests with:
 ```bash
 uv run pytest
 ```
+
+Before full training, verify that the simple trajectory-regression MLP can
+memorize one fixed batch:
+
+```bash
+uv run train_simple.py --overfit-one-batch
+```
+
+Then train it on the complete training split:
+
+```bash
+uv run train_simple.py
+```
+
+The best checkpoint and loss history are written to `outputs/simple_bc/`.
+Training and validation curves are also logged to the
+`shatz-visuomotor-diffusion` project in Weights & Biases. To run without
+uploading, pass `--wandb-mode disabled`; use `--wandb-mode offline` to save a
+run for later synchronization. Training uses a fresh random seed per run while
+retaining the same episode split; pass `--seed 42` to reproduce training exactly.

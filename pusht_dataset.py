@@ -240,6 +240,7 @@ def create_pusht_dataloaders(
     batch_size: int = 64,
     validation_fraction: float = 0.2,
     split_seed: int = 42,
+    shuffle_seed: int | None = None,
     observation_type: ObservationType = "state",
     observation_horizon: int = 2,
     prediction_horizon: int = 16,
@@ -273,7 +274,11 @@ def create_pusht_dataloaders(
         pin_memory=torch.cuda.is_available(),
         persistent_workers=num_workers > 0,
     )
-    generator = torch.Generator().manual_seed(split_seed)
+    generator = (
+        torch.Generator().manual_seed(shuffle_seed)
+        if shuffle_seed is not None
+        else None
+    )
     return PushTDataLoaders(
         train=DataLoader(
             train_dataset, shuffle=True, generator=generator, **loader_options
