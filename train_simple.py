@@ -13,6 +13,7 @@ import torch
 import wandb
 from torch import nn
 
+from cosine_beta_schedule import cosine_beta_schedule
 from pusht_dataset import (
     DEFAULT_DATASET,
     PushTNormalizer,
@@ -45,54 +46,98 @@ class SimpleTrajectoryModel(nn.Module):
         action_dim: int = 2,
         hidden_dim: int = 256,
         residual_blocks: int = 4,
+        using_diffusion_mode: bool = False,
+        num_diffusion_steps: int = 100,
     ) -> None:
         super().__init__()
         self.observation_horizon = observation_horizon
         self.observation_dim = observation_dim
         self.prediction_horizon = prediction_horizon
         self.action_dim = action_dim
+        self.num_diffusion_steps = num_diffusion_steps
+        self.using_diffusion_mode = using_diffusion_mode
+
+        self.input_dim = observation_horizon * observation_dim
+        if using_diffusion_mode:
+            self.input_dim += prediction_horizon * action_dim + 1
+            # when doing diffusion, model needs to take observations + noised trajectories + noise steps used
+            # using that, we predict noise used.
 
         self.network = nn.Sequential(
-            nn.Flatten(start_dim=1),
-            nn.Linear(observation_horizon * observation_dim, hidden_dim),
+            # nn.Flatten(start_dim=1),
+            nn.Linear(self.input_dim, hidden_dim),
             nn.SiLU(),
             *(ResidualBlock(hidden_dim) for _ in range(residual_blocks)),
             nn.LayerNorm(hidden_dim),
             nn.Linear(hidden_dim, prediction_horizon * action_dim),
         )
 
-    def forward(self, observation: torch.Tensor) -> torch.Tensor:
-        expected = (self.observation_horizon, self.observation_dim)
-        if tuple(observation.shape[1:]) != expected:
-            raise ValueError(
-                f"Expected observation shape (batch, {expected[0]}, {expected[1]}), "
-                f"received {tuple(observation.shape)}."
-            )
-        action = self.network(observation)
-        return action.reshape(-1, self.prediction_horizon, self.action_dim)
+    def forward(self, observation: torch.Tensor, noisy_actions: torch.Tensor = None, timesteps: torch.Tensor = None) -> torch.Tensor:
 
+        import ipdb; ipdb.set_trace()
+
+        model_input = observation.flatten(start_dim=1)
+        if self.using_diffusion_mode:
+            normalized_timesteps = (timesteps.float() / (self.num_diffusion_steps-1)).unsqueeze(1)
+            model_input = torch.cat(
+                [
+                    model_input,
+                    noisy_actions.flatten(start_dim=1),
+                    normalized_timesteps,
+                ],
+                dim=1
+            )
+        
+        # expected = (self.observation_horizon, self.observation_dim)
+        # if tuple(observation.shape[1:]) != expected:
+        #     raise ValueError(
+        #         f"Expected observation shape (batch, {expected[0]}, {expected[1]}), "
+        #         f"received {tuple(observation.shape)}."
+        #     )
+        action = self.network(model_input)
+        return action.reshape(-1, self.prediction_horizon, self.action_dim)
 
 def train_epoch(
     model: nn.Module,
     loader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
+    alpha_bars = None
 ) -> float:
     model.train()
     squared_error = 0.0
     elements = 0
+    alpha_bars = alpha_bars.to(device)
     for batch in loader:
-        observation = batch["observation"].to(device, non_blocking=True)
-        target = batch["action"].to(device, non_blocking=True)
-        prediction = model(observation)
-        loss = nn.functional.mse_loss(prediction, target)
+        # 1 observation is 5 values: [agent_x, agent_y, block_x, block_y, block_angle]
+        observation = batch["observation"].to(device, non_blocking=True)  # [B, 2, 5] 
+        target_clean_trajectory = batch["action"].to(device, non_blocking=True) # [B, 16, 2]
 
+        if alpha_bars is None:
+            prediction = model(observation) # [B, 16, 2]
+            target = target_clean_trajectory
+
+        else:
+            bs = observation.shape[0]
+            timesteps = torch.randint(
+                0, 
+                len(alpha_bars),
+                (bs,),
+                device=device
+            ) # [B,]
+            target_noise = torch.randn_like(target_clean_trajectory)
+            alpha_bar_t = alpha_bars[timesteps].view(-1, 1, 1) # noise corresponding to chosen steps [B, 1, 1] for broadcasting
+            noisy_actions = alpha_bar_t.sqrt() * target_clean_trajectory + (1 - alpha_bar_t).sqrt() * target_noise
+            prediction = model(observation, noisy_actions, timesteps)
+            target = target_noise
+
+        loss = nn.functional.mse_loss(prediction, target)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         optimizer.step()
-
         squared_error += float(loss.detach()) * target.numel()
         elements += target.numel()
+
     return squared_error / elements
 
 
@@ -215,6 +260,12 @@ def parse_args() -> argparse.Namespace:
         choices=("online", "offline", "disabled"),
         default="online",
     )
+    parser.add_argument(
+        "--policy",
+        choices=("simple", "diffusion"),
+        default="simple",
+    )
+    parser.add_argument("--num-diffusion-steps", type=int, default=100)
     return parser.parse_args()
 
 
@@ -228,6 +279,19 @@ def main() -> None:
     if args.seed is not None:
         set_seed(args.seed)
     device = resolve_device(args.device)
+
+    yes_diffusion = args.policy == "diffusion"
+    num_diffusion_steps = args.num_diffusion_steps
+    if yes_diffusion:
+        print(f"✅ doing diffusion, num_steps: {num_diffusion_steps}")
+        # betas are how much noise we add per step. 0th step very little noise. Last step almost all noise.
+        betas = cosine_beta_schedule(num_diffusion_steps)
+        alphas = 1 - betas
+        alpha_bars = torch.cumprod(alphas, dim=0)
+    else:
+        alpha_bars = None
+        print("❌ No diffusion")
+
     loaders = create_pusht_dataloaders(
         args.dataset,
         batch_size=args.batch_size,
@@ -242,6 +306,8 @@ def main() -> None:
         "action_dim": 2,
         "hidden_dim": args.hidden_dim,
         "residual_blocks": args.residual_blocks,
+        "using_diffusion_mode": yes_diffusion,
+        "num_diffusion_steps": num_diffusion_steps
     }
     model = SimpleTrajectoryModel(**model_config).to(device)
     optimizer = torch.optim.AdamW(
@@ -336,7 +402,7 @@ def main() -> None:
     history = []
     execution_slice = loaders.train.dataset.execution_slice
     for epoch in range(1, args.epochs + 1):
-        train_mse = train_epoch(model, loaders.train, optimizer, device)
+        train_mse = train_epoch(model, loaders.train, optimizer, device, alpha_bars=alpha_bars)
         validation = evaluate(
             model,
             loaders.validation,
