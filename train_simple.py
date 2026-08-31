@@ -216,53 +216,6 @@ def evaluate(
     return metrics
 
 
-def fit_fixed_batch(
-    model: nn.Module,
-    batch: dict[str, torch.Tensor],
-    optimizer: torch.optim.Optimizer,
-    steps: int,
-    device: torch.device,
-    alpha_bars: torch.Tensor | None = None,
-) -> tuple[float, float]:
-    """Optimize one fixed batch as an end-to-end pipeline sanity check."""
-    observation = batch["observation"].to(device)
-    target_clean_trajectory = batch["action"].to(device)
-
-    if alpha_bars is None:
-        model_inputs = (observation,)
-        target = target_clean_trajectory
-    else:
-        timesteps = torch.randint(
-            0,
-            len(alpha_bars),
-            (observation.shape[0],),
-            device=device,
-        )
-        target_noise = torch.randn_like(target_clean_trajectory)
-        alpha_bar_t = alpha_bars[timesteps].view(-1, 1, 1)
-        noisy_actions = (
-            alpha_bar_t.sqrt() * target_clean_trajectory
-            + (1 - alpha_bar_t).sqrt() * target_noise
-        )
-        model_inputs = (observation, noisy_actions, timesteps)
-        target = target_noise
-
-    model.train()
-    with torch.no_grad():
-        initial_loss = float(nn.functional.mse_loss(model(*model_inputs), target))
-
-    for _ in range(steps):
-        loss = nn.functional.mse_loss(model(*model_inputs), target)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
-
-    model.eval()
-    with torch.no_grad():
-        final_loss = float(nn.functional.mse_loss(model(*model_inputs), target))
-    return initial_loss, final_loss
-
-
 def save_checkpoint(
     path: Path,
     model: SimpleTrajectoryModel,
@@ -305,8 +258,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
-    parser.add_argument("--overfit-one-batch", action="store_true")
-    parser.add_argument("--overfit-steps", type=int, default=1_000)
     parser.add_argument("--sanity-check", action="store_true")
     parser.add_argument(
         "--wandb-project", default="shatz-visuomotor-diffusion"
@@ -329,8 +280,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if args.sanity_check and args.overfit_one_batch:
-        raise ValueError("--sanity-check and --overfit-one-batch cannot be combined.")
     if args.sanity_check:
         args.epochs = 3
         args.num_workers = 0
@@ -423,38 +372,6 @@ def main() -> None:
         run_output_dir = create_run_output_dir(args.output_dir, run.name, run.id)
         run.config.update({"local_output_dir": str(run_output_dir)})
         print(f"Run: {run.name} ({run.id})")
-
-    if args.overfit_one_batch:
-        batch = next(iter(loaders.train))
-        initial_loss, final_loss = fit_fixed_batch(
-            model,
-            batch,
-            optimizer,
-            args.overfit_steps,
-            device,
-            alpha_bars,
-        )
-        print(
-            f"Fixed-batch MSE after {args.overfit_steps:,} steps: "
-            f"{initial_loss:.6f} -> {final_loss:.6f}"
-        )
-        save_checkpoint(
-            run_output_dir / "overfit.pt",
-            model,
-            checkpoint_metadata,
-            epoch=None,
-            validation_metrics=None,
-        )
-        run.log(
-            {
-                "overfit/initial_mse": initial_loss,
-                "overfit/final_mse": final_loss,
-            }
-        )
-        run.summary["overfit_initial_mse"] = initial_loss
-        run.summary["overfit_final_mse"] = final_loss
-        run.finish()
-        return
 
     best_mse = float("inf")
     best_epoch = 0

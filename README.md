@@ -52,13 +52,6 @@ Run the dataset tests with:
 uv run pytest
 ```
 
-Before full training, verify that the simple trajectory-regression MLP can
-memorize one fixed batch:
-
-```bash
-uv run train_simple.py --overfit-one-batch
-```
-
 Run a three-epoch offline sanity check with no DataLoader workers, W&B run, or
 saved artifacts:
 
