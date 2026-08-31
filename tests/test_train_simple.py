@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 import torch
 
+from src.train.diffusion import sample_actions
 from src.train.model import SimpleTrajectoryModel
 from src.train.train_utils import create_run_output_dir, set_seed
 
@@ -36,6 +37,19 @@ def test_diffusion_model_shape_and_gradients() -> None:
     assert prediction.shape == target_noise.shape
     torch.nn.functional.mse_loss(prediction, target_noise).backward()
     assert all(parameter.grad is not None for parameter in model.parameters())
+
+
+def test_reverse_diffusion_sampling_shape() -> None:
+    model = SimpleTrajectoryModel(
+        hidden_dim=32,
+        residual_blocks=1,
+        using_diffusion_mode=True,
+        num_diffusion_steps=4,
+    )
+    sampled_actions = sample_actions(model, torch.randn(2, 2, 5))
+
+    assert sampled_actions.shape == (2, 16, 2)
+    assert torch.isfinite(sampled_actions).all()
 
 
 def test_model_rejects_wrong_observation_shape() -> None:

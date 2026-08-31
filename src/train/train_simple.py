@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import torch
 import wandb
@@ -229,7 +230,10 @@ def main() -> None:
     history = []
     execution_slice = loaders.train.dataset.execution_slice
     for epoch in range(1, args.epochs + 1):
+        train_start = time.perf_counter()
         train_mse = train_epoch(model, loaders.train, optimizer, device, alpha_bars=alpha_bars)
+        train_seconds = time.perf_counter() - train_start
+        train_samples_per_second = len(loaders.train.dataset) / train_seconds
         validation = evaluate(
             model,
             loaders.validation,
@@ -241,6 +245,9 @@ def main() -> None:
         epoch_metrics = {
             "epoch": epoch,
             "train/mse": train_mse,
+            "train/epoch_seconds": train_seconds,
+            "train/samples_per_second": train_samples_per_second,
+            "generalization/mse_gap": validation["mse"] - train_mse,
             **{f"validation/{name}": value for name, value in validation.items()},
         }
         history.append(epoch_metrics)
@@ -248,7 +255,8 @@ def main() -> None:
             run.log(epoch_metrics, step=epoch)
         epoch_message = (
             f"Epoch {epoch:03d} | train MSE {train_mse:.6f} | "
-            f"validation MSE {validation['mse']:.6f}"
+            f"validation MSE {validation['mse']:.6f} | "
+            f"{train_samples_per_second:.0f} samples/s"
         )
         if "execution_error_px" in validation:
             epoch_message += (

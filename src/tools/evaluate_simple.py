@@ -19,6 +19,7 @@ import torch
 from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
 
 from src.pusht_dataset import MinMaxStats, PushTNormalizer
+from src.train.diffusion import sample_actions
 from src.train.model import SimpleTrajectoryModel
 from src.train.train_utils import resolve_device
 
@@ -121,7 +122,10 @@ def predict_action_chunk(
         np.stack(observation_history), dtype=torch.float32, device=device
     ).unsqueeze(0)
     observation = normalizer.observation.normalize(observation)
-    prediction = model(observation)
+    if model.using_diffusion_mode:
+        prediction = sample_actions(model, observation)
+    else:
+        prediction = model(observation)
     prediction = normalizer.action.denormalize(prediction)[0].cpu().numpy()
     start_index = model.observation_horizon - 1
     action_chunk = np.clip(
