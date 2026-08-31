@@ -5,11 +5,8 @@ import numpy as np
 import pytest
 import torch
 
-from train_simple import (
-    SimpleTrajectoryModel,
-    create_run_output_dir,
-    set_seed,
-)
+from src.train.model import SimpleTrajectoryModel
+from src.train.train_utils import create_run_output_dir, set_seed
 
 
 def test_model_shape_and_gradients() -> None:

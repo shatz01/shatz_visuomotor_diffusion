@@ -11,13 +11,13 @@ uv sync
 Check the local PyTorch/CUDA setup with:
 
 ```bash
-uv run check_gpu.py
+uv run python -m src.compute.check_gpu
 ```
 
 Inspect the Push-T environment and record a random-policy rollout:
 
 ```bash
-uv run inspect_pusht.py
+uv run python -m src.tools.inspect_pusht
 ```
 
 The rollout video is written to `outputs/pusht_inspection/`.
@@ -29,7 +29,7 @@ mkdir -p data
 curl -fL https://diffusion-policy.cs.columbia.edu/data/training/pusht.zip -o data/pusht.zip
 echo "63d52a114a3f010861f0181309d165b7d69133ccae426ece2fc94caed147bdf9  data/pusht.zip" | sha256sum --check
 unzip -q data/pusht.zip -d data
-uv run inspect_pusht_data.py
+uv run python -m src.tools.inspect_pusht_data
 ```
 
 Dataset plots and an expert-episode video are written to `outputs/pusht_dataset/`.
@@ -38,7 +38,7 @@ Build the episode-safe `To=2`, `Tp=16`, `Ta=8` training and validation
 dataloaders with:
 
 ```python
-from pusht_dataset import create_pusht_dataloaders
+from src.pusht_dataset import create_pusht_dataloaders
 
 loaders = create_pusht_dataloaders(batch_size=64)
 batch = next(iter(loaders.train))
@@ -56,13 +56,13 @@ Run a three-epoch offline sanity check with no DataLoader workers, W&B run, or
 saved artifacts:
 
 ```bash
-uv run train_simple.py --sanity-check
+uv run python -m src.train.train_simple --sanity-check
 ```
 
 Then train it on the complete training split:
 
 ```bash
-uv run train_simple.py
+uv run python -m src.train.train_simple
 ```
 
 Each training run gets a unique directory named after its W&B run, such as
@@ -79,7 +79,7 @@ shuffling for a reproducible run.
 Evaluate the best and last checkpoints from a run on identical Push-T seeds:
 
 ```bash
-uv run evaluate_simple.py \
+uv run python -m src.tools.evaluate_simple \
   outputs/simple_bc/<run>/best.pt \
   outputs/simple_bc/<run>/last.pt
 ```

@@ -1,3 +1,5 @@
+"""Build and visualize the cosine diffusion noise schedule."""
+
 from pathlib import Path
 
 import matplotlib.pyplot as plt

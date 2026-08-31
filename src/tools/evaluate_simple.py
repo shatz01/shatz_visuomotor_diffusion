@@ -1,4 +1,4 @@
-"""Evaluate simple trajectory-regression checkpoints in closed-loop Push-T."""
+"""Evaluate trajectory-policy checkpoints in closed-loop Push-T."""
 
 from __future__ import annotations
 
@@ -18,8 +18,9 @@ import numpy as np
 import torch
 from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
 
-from pusht_dataset import MinMaxStats, PushTNormalizer
-from train_simple import SimpleTrajectoryModel, resolve_device
+from src.pusht_dataset import MinMaxStats, PushTNormalizer
+from src.train.model import SimpleTrajectoryModel
+from src.train.train_utils import resolve_device
 
 
 CONTROL_HZ = 10

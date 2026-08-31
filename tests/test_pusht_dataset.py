@@ -5,7 +5,7 @@ import pytest
 import torch
 import zarr
 
-from pusht_dataset import (
+from src.pusht_dataset import (
     MinMaxStats,
     PushTSequenceDataset,
     create_pusht_dataloaders,

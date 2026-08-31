@@ -5,15 +5,15 @@ import numpy as np
 import pytest
 import torch
 
-from evaluate_simple import (
+from src.tools.evaluate_simple import (
     RolloutResult,
     annotate_frame,
     load_policy,
     predict_action_chunk,
     summarize,
 )
-from pusht_dataset import MinMaxStats, PushTNormalizer
-from train_simple import SimpleTrajectoryModel
+from src.pusht_dataset import MinMaxStats, PushTNormalizer
+from src.train.model import SimpleTrajectoryModel
 
 
 def test_load_policy_and_predict_execution_chunk(tmp_path: Path) -> None:

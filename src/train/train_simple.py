@@ -2,109 +2,22 @@
 
 from __future__ import annotations
 
-import argparse
 import json
-import random
-import re
-from pathlib import Path
 
-import numpy as np
 import torch
 import wandb
 from torch import nn
 
-from cosine_beta_schedule import cosine_beta_schedule
-from pusht_dataset import (
-    DEFAULT_DATASET,
-    PushTNormalizer,
-    create_pusht_dataloaders,
+from src.pusht_dataset import PushTNormalizer, create_pusht_dataloaders
+from src.train.args import parse_args
+from src.train.cosine_beta_schedule import cosine_beta_schedule
+from src.train.model import SimpleTrajectoryModel
+from src.train.train_utils import (
+    create_run_output_dir,
+    resolve_device,
+    save_checkpoint,
+    set_seed,
 )
-
-
-class ResidualBlock(nn.Module):
-    def __init__(self, width: int) -> None:
-        super().__init__()
-        self.layers = nn.Sequential(
-            nn.LayerNorm(width),
-            nn.Linear(width, width),
-            nn.SiLU(),
-            nn.Linear(width, width),
-        )
-
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        return inputs + self.layers(inputs)
-
-
-class SimpleTrajectoryModel(nn.Module):
-    """Predict an action trajectory directly or predict diffusion noise."""
-
-    def __init__(
-        self,
-        observation_horizon: int = 2,
-        observation_dim: int = 5,
-        prediction_horizon: int = 16,
-        action_dim: int = 2,
-        hidden_dim: int = 256,
-        residual_blocks: int = 4,
-        using_diffusion_mode: bool = False,
-        num_diffusion_steps: int = 100,
-    ) -> None:
-        super().__init__()
-        self.observation_horizon = observation_horizon
-        self.observation_dim = observation_dim
-        self.prediction_horizon = prediction_horizon
-        self.action_dim = action_dim
-        self.num_diffusion_steps = num_diffusion_steps
-        self.using_diffusion_mode = using_diffusion_mode
-
-        self.input_dim = observation_horizon * observation_dim
-        if using_diffusion_mode:
-            if num_diffusion_steps < 2:
-                raise ValueError("Diffusion requires at least two timesteps.")
-            self.input_dim += prediction_horizon * action_dim + 1
-            # when doing diffusion, model needs to take observations + noised trajectories + noise steps used
-            # using that, we predict noise used.
-
-        self.network = nn.Sequential(
-            nn.Flatten(start_dim=1),
-            nn.Linear(self.input_dim, hidden_dim),
-            nn.SiLU(),
-            *(ResidualBlock(hidden_dim) for _ in range(residual_blocks)),
-            nn.LayerNorm(hidden_dim),
-            nn.Linear(hidden_dim, prediction_horizon * action_dim),
-        )
-
-    def forward(
-        self,
-        observation: torch.Tensor,
-        noisy_actions: torch.Tensor | None = None,
-        timesteps: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        expected = (self.observation_horizon, self.observation_dim)
-        if tuple(observation.shape[1:]) != expected:
-            raise ValueError(
-                f"Expected observation shape (batch, {expected[0]}, {expected[1]}), "
-                f"received {tuple(observation.shape)}."
-            )
-
-        model_input = observation.flatten(start_dim=1)
-        if self.using_diffusion_mode:
-            if noisy_actions is None or timesteps is None:
-                raise ValueError("Diffusion mode requires noisy actions and timesteps.")
-            normalized_timesteps = (
-                timesteps.float() / (self.num_diffusion_steps - 1)
-            ).unsqueeze(1)
-            model_input = torch.cat(
-                [
-                    model_input,
-                    noisy_actions.flatten(start_dim=1),
-                    normalized_timesteps,
-                ],
-                dim=1,
-            )
-
-        action = self.network(model_input)
-        return action.reshape(-1, self.prediction_horizon, self.action_dim)
 
 
 def train_epoch(
@@ -214,68 +127,6 @@ def evaluate(
             }
         )
     return metrics
-
-
-def save_checkpoint(
-    path: Path,
-    model: SimpleTrajectoryModel,
-    metadata: dict[str, object],
-    epoch: int | None,
-    validation_metrics: dict[str, float] | None,
-) -> None:
-    torch.save(
-        {
-            "model": model.state_dict(),
-            **metadata,
-            "epoch": epoch,
-            "validation_metrics": validation_metrics,
-        },
-        path,
-    )
-
-
-def create_run_output_dir(output_root: Path, run_name: str, run_id: str) -> Path:
-    """Create a unique, filesystem-safe directory for one W&B run."""
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", run_name).strip("._-") or "run"
-    safe_id = re.sub(r"[^A-Za-z0-9._-]+", "-", run_id).strip("._-")
-    if not safe_id:
-        raise ValueError("The W&B run ID cannot be empty.")
-    output_dir = output_root / f"{safe_name}-{safe_id}"
-    output_dir.mkdir(parents=True, exist_ok=False)
-    return output_dir
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/simple_bc"))
-    parser.add_argument("--epochs", type=int, default=35)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--learning-rate", type=float, default=1e-3)
-    parser.add_argument("--weight-decay", type=float, default=1e-6)
-    parser.add_argument("--hidden-dim", type=int, default=256)
-    parser.add_argument("--residual-blocks", type=int, default=4)
-    parser.add_argument("--num-workers", type=int, default=2)
-    parser.add_argument("--seed", type=int)
-    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
-    parser.add_argument("--sanity-check", action="store_true")
-    parser.add_argument(
-        "--wandb-project", default="shatz-visuomotor-diffusion"
-    )
-    parser.add_argument("--wandb-entity")
-    parser.add_argument("--wandb-run-name")
-    parser.add_argument(
-        "--wandb-mode",
-        choices=("online", "offline", "disabled"),
-        default="online",
-    )
-    parser.add_argument(
-        "--policy",
-        choices=("simple", "diffusion"),
-        default="simple",
-    )
-    parser.add_argument("--num-diffusion-steps", type=int, default=100)
-    return parser.parse_args()
 
 
 def main() -> None:
@@ -433,22 +284,6 @@ def main() -> None:
         run.summary["best_validation_mse"] = best_mse
         run.summary["best_epoch"] = best_epoch
         run.finish()
-
-
-def set_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
-
-def resolve_device(requested: str) -> torch.device:
-    if requested == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if requested == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA was requested but is not available.")
-    return torch.device(requested)
 
 
 if __name__ == "__main__":
