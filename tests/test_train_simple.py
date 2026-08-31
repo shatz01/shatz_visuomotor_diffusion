@@ -24,6 +24,24 @@ def test_model_shape_and_gradients() -> None:
     assert all(parameter.grad is not None for parameter in model.parameters())
 
 
+def test_diffusion_model_shape_and_gradients() -> None:
+    model = SimpleTrajectoryModel(
+        hidden_dim=32,
+        residual_blocks=2,
+        using_diffusion_mode=True,
+        num_diffusion_steps=100,
+    )
+    observation = torch.randn(4, 2, 5)
+    noisy_actions = torch.randn(4, 16, 2)
+    timesteps = torch.randint(0, 100, (4,))
+    target_noise = torch.randn(4, 16, 2)
+    prediction = model(observation, noisy_actions, timesteps)
+
+    assert prediction.shape == target_noise.shape
+    torch.nn.functional.mse_loss(prediction, target_noise).backward()
+    assert all(parameter.grad is not None for parameter in model.parameters())
+
+
 def test_model_rejects_wrong_observation_shape() -> None:
     model = SimpleTrajectoryModel()
     try:
